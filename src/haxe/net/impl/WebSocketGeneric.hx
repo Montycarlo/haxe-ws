@@ -46,14 +46,14 @@ class WebSocketGeneric extends WebSocket {
           this.headerArgs = {
             pragma:"no-cache",
             cacheControl:"no-cache",
-            origin:"http://127.0.0.1/",
+            origin:"",
             userAgent:"Mozilla/5.0",
           };
         }else{
           this.headerArgs = {
             pragma:(args.headers.pragma == null ? "no-cache" : args.headers.pragma),
             cacheControl:(args.headers.cacheControl == null ? "no-cache" : args.headers.cacheControl),
-            origin:(args.headers.origin == null ? "http://127.0.0.1/" : args.headers.origin),
+            origin:(args.headers.origin == null ? "" : args.headers.origin),
             userAgent:(args.headers.userAgent == null ? "Mozilla/5.0" : args.headers.userAgent),
           };
         }

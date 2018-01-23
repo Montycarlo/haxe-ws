@@ -11,6 +11,7 @@ enum ReadyState {
 }
 
 class WebSocket {
+
     private function new() {
     }
 
