@@ -5,9 +5,26 @@ import haxe.crypto.Sha1;
 import haxe.io.Bytes;
 import haxe.net.Socket2;
 import haxe.net.WebSocket.ReadyState;
+
+typedef HeaderArgs = {
+  @:optional var pragma:String;
+  @:optional var cacheControl:String;
+  @:optional var origin:String;
+  @:optional var userAgent:String;
+}
+
+typedef InitArgs = {
+  var uri:String;
+  @:optional var protocols:Array<String>;
+  @:optional var origin:String;
+  @:optional var key:String;
+  @:optional var debug:Bool;
+  @:optional var headers:HeaderArgs;
+}
+
 class WebSocketGeneric extends WebSocket {
+
     private var socket:Socket2;
-    private var origin = "http://127.0.0.1/";
     private var scheme = "ws";
     private var key = "wskey";
     private var host = "127.0.0.1";
@@ -18,16 +35,32 @@ class WebSocketGeneric extends WebSocket {
     private var state = State.Handshake;
     public var debug:Bool = true;
     private var needHandleData:Bool = false;
+    private var headerArgs:HeaderArgs;
 
-    function initialize(uri:String, protocols:Array<String> = null, origin:String = null, key:String = "wskey", debug:Bool = true) {
-        if (origin == null) origin = "http://127.0.0.1/";
-        this.protocols = protocols;
-        this.origin = origin;
-        this.key = key;
-        this.debug = debug;
+    function initialize(args:InitArgs) {
+        this.protocols = (args.protocols == null ? [] : args.protocols);
+        this.key = (args.key == null ? "wskey" : key);
+        this.debug = (args.debug == null ? true : args.debug);
+
+        if(args.headers == null){
+          this.headerArgs = {
+            pragma:"no-cache",
+            cacheControl:"no-cache",
+            origin:"http://127.0.0.1/",
+            userAgent:"Mozilla/5.0",
+          };
+        }else{
+          this.headerArgs = {
+            pragma:(args.headers.pragma == null ? "no-cache" : args.headers.pragma),
+            cacheControl:(args.headers.cacheControl == null ? "no-cache" : args.headers.cacheControl),
+            origin:(args.headers.origin == null ? "http://127.0.0.1/" : args.headers.origin),
+            userAgent:(args.headers.userAgent == null ? "Mozilla/5.0" : args.headers.userAgent),
+          };
+        }
+
         var reg = ~/^(\w+?):\/\/([\w\.-]+)(:(\d+))?(\/.*)?$/;
         //var reg = ~/^(\w+?):/;
-        if (!reg.match(uri)) throw 'Uri not matching websocket uri "${uri}"';
+        if (!reg.match(args.uri)) throw 'Uri not matching websocket uri "${args.uri}"';
         scheme = reg.matched(1);
         switch (scheme) {
             case "ws": secure = false;
@@ -44,7 +77,7 @@ class WebSocketGeneric extends WebSocket {
         state = State.Handshake;
         socket.onconnect = function() {
             _debug('socket connected');
-            writeBytes(prepareClientHandshake(path, host, port, key, origin));
+            writeBytes(prepareClientHandshake(path, host, port, key, headerArgs.origin));
             //this.onopen();
         };
         commonInitialize();
@@ -68,8 +101,8 @@ class WebSocketGeneric extends WebSocket {
         };
     }
     
-    public static function create(uri:String, protocols:Array<String> = null, origin:String = null, key:String = "wskey", debug:Bool) {
-        return new WebSocketGeneric().initialize(uri, protocols, origin, key, debug);
+    public static function create(args:InitArgs) {
+        return new WebSocketGeneric().initialize(args);
     }
     
     public static function createFromAcceptedSocket(socket:Socket2, alreadyRecieved:String = '', debug:Bool) {
@@ -119,7 +152,7 @@ class WebSocketGeneric extends WebSocket {
 
     private function handleData() {
         needHandleData = false;
-        
+
         while (true) {
             if (payload == null) payload = new BytesRW();
 
@@ -134,7 +167,7 @@ class WebSocketGeneric extends WebSocket {
                     if (!readHttpHeader()) {
                         return;
                     }
-                    
+
                     try {
                         var handshake = prepareServerHandshake();
                         _debug('Sending responce: $handshake');
@@ -150,7 +183,7 @@ class WebSocketGeneric extends WebSocket {
                     }
                 case State.Head:
                     if (socketData.available < 2) return;
-                    
+
                     var b0 = socketData.readByte();
                     var b1 = socketData.readByte();
 
@@ -220,7 +253,7 @@ class WebSocketGeneric extends WebSocket {
         //trace('data!' + socket.bytesAvailable);
         //trace(socket.readUTFBytes(socket.bytesAvailable));
     }
-    
+
     private function setClosed() {
         if (state != State.Closed) {
             state = State.Closed;
@@ -231,29 +264,28 @@ class WebSocketGeneric extends WebSocket {
     private function ping() {
         sendFrame(Bytes.alloc(0), Opcode.Ping);
     }
-    
+
     private function isHttpHeaderRead():Bool return httpHeader.substr( -4) == "\r\n\r\n";
-    
+
     private function readHttpHeader():Bool {
         while (!isHttpHeaderRead() && socketData.available > 0) {
             httpHeader += String.fromCharCode(socketData.readByte());
         }
         return isHttpHeaderRead();
     }
-    
+
     private function prepareServerHandshake() {
         if (debug) trace('HTTP request: \n$httpHeader');
-        
+
         var requestLines = httpHeader.split('\r\n');
         requestLines.pop(); 
         requestLines.pop(); 
-        
+
         var firstLine = requestLines.shift();
         var regexp = ~/^GET (.*) HTTP\/1.1$/;
         if (!regexp.match(firstLine)) throw 'First line of HTTP request is invalid: "$firstLine"';
         path = regexp.matched(1);
-        
-        
+
         var acceptKey:String = {
             var key:String = null;
             var version:String = null;
@@ -271,7 +303,7 @@ class WebSocketGeneric extends WebSocket {
                     case 'Connection': connection = value;
                 }
             }
-            
+
             if (
                 version != '13' 
                 || upgrade != 'websocket' 
@@ -284,12 +316,12 @@ class WebSocketGeneric extends WebSocket {
                     '"Sec-WebSocket-Key" is "$key", should be present'
                 ].join('\n');
             }
-            
+
             Base64.encode(Sha1.make(Bytes.ofString(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')));
         }
-        
+
         if (debug) trace('Websocket succefully connected');
-        
+
         return [
             'HTTP/1.1 101 Switching Protocols',
             'Upgrade: websocket',
@@ -297,9 +329,9 @@ class WebSocketGeneric extends WebSocket {
             'Sec-WebSocket-Accept: $acceptKey',
             '',    ''
         ].join('\r\n');
-        
+
     }
-    
+
     private function prepareHttp400(message:String) {
         return [
             'HTTP/1.1 400 Bad request',
@@ -313,33 +345,33 @@ class WebSocketGeneric extends WebSocket {
         var lines = [];
         lines.push('GET ${url} HTTP/1.1');
         lines.push('Host: ${host}:${port}');
-        lines.push('Pragma: no-cache');
-        lines.push('Cache-Control: no-cache');
+        if(headerArgs.pragma != "") lines.push('Pragma: ${headerArgs.pragma}');
+        if(headerArgs.cacheControl != "") lines.push('Cache-Control: ${headerArgs.cacheControl}');
         lines.push('Upgrade: websocket');
-        if (this.protocols != null) {
+        if (this.protocols != null && this.protocols.length > 0) {
             lines.push('Sec-WebSocket-Protocol: ' + this.protocols.join(', '));
         }
         lines.push('Sec-WebSocket-Version: 13');
         lines.push('Connection: Upgrade');
         lines.push("Sec-WebSocket-Key: " + Base64.encode(Utf8Encoder.encode(key)));
-        lines.push('Origin: ${origin}');
-        lines.push('User-Agent: Mozilla/5.0');
+        if(origin != null) lines.push('Origin: ${origin}');
+        if(headerArgs.userAgent != "") lines.push('User-Agent: ${headerArgs.userAgent}');
 
         return Utf8Encoder.encode(lines.join("\r\n") + "\r\n\r\n");
     }
 
     override public function close() {
-		if(state != State.Closed) {
-			sendFrame(Bytes.alloc(0), Opcode.Close);
-			socket.close();
-			setClosed();
-		}
+      if(state != State.Closed) {
+        sendFrame(Bytes.alloc(0), Opcode.Close);
+        socket.close();
+        setClosed();
+      }
     }
 
     private function sendFrame(data:Bytes, type:Opcode) {
         writeBytes(prepareFrame(data, type, true));
     }
-    
+
     override function get_readyState():ReadyState {
         return switch(state) {
             case Handshake: ReadyState.Connecting;

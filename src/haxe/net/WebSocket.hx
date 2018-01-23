@@ -23,7 +23,15 @@ class WebSocket {
                     return new haxe.net.impl.WebSocketFlashExternalInterface(url, protocols);
                 }
             #end
-            return haxe.net.impl.WebSocketGeneric.create(url, protocols, origin, "wskey", debug);
+            return haxe.net.impl.WebSocketGeneric.create({
+              uri: url,
+              protocols: protocols, 
+              key: "wskey", 
+              debug: debug,
+              headers: {
+                origin:origin,
+              }, 
+            });
         #end
     }
 	
